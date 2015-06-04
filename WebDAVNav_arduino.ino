@@ -73,10 +73,7 @@ void setup() {
 }
 
 void ListFiles(EthernetClient client, char *folderPath, File folder, int format) {
-  if (format == 0) {
-    client.println(getString(MULTISTATUS_START));
-  }
-
+  client.println(getString(MULTISTATUS_START));
   folder.rewindDirectory();
   while (true) {
 
