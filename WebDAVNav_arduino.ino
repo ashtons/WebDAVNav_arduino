@@ -1,8 +1,11 @@
 
-#include <SD.h>
+//https://github.com/greiman/SdFat
+#include <SdFat.h>
 #include <Ethernet.h>
 #include <SPI.h>
 #include <avr/pgmspace.h>
+
+SdFat SD;
 
 #define SS_SD_CARD   4
 #define SS_ETHERNET 10
@@ -46,13 +49,30 @@ FLASH_TEXT(MODDATE_START) = "<D:getlastmodified>";
 FLASH_TEXT(MODDATE_END) = "</D:getlastmodified>";
 FLASH_TEXT(STATUS_OK) = "<D:status>HTTP/1.1 200 OK</D:status>";
 
+#define BUFFER_SIZE 110
 #define MAX_STRING 60
 
 char stringBuffer[MAX_STRING];
+char replaceBuffer[MAX_STRING];
 
 char* getString(const unsigned char* str) {
   strcpy_P(stringBuffer, (char*)str);
   return stringBuffer;
+}
+
+static char *str_replace(char *input, char *match, const char *substitute)
+{
+    byte offset = 0;
+    char *search;
+    while (search = strstr(input, match)) {
+        memcpy(replaceBuffer + offset, input, search - input);
+        offset += search - input;
+        input = search + strlen(match);
+        memcpy(replaceBuffer + offset, substitute, strlen(substitute));
+        offset += strlen(substitute);
+    }
+    strcpy(replaceBuffer + offset, input);
+    return replaceBuffer;
 }
 
 void setup() {
@@ -63,7 +83,7 @@ void setup() {
   digitalWrite(SS_SD_CARD, HIGH);
   digitalWrite(SS_ETHERNET, HIGH);
 
-  if (!SD.begin(4)) {
+  if (!SD.begin(SS_SD_CARD, SPI_FULL_SPEED)) {
     Serial.println("SD fail!");
     return;
   }
@@ -72,9 +92,10 @@ void setup() {
   server.begin();
 }
 
-void ListFiles(EthernetClient client, char *folderPath, File folder, int format) {
+void ListFiles(EthernetClient client, const char *folderPath, File folder, int format) {
   client.println(getString(MULTISTATUS_START));
   folder.rewindDirectory();
+  char name[64];
   while (true) {
 
     File entry =  folder.openNextFile();
@@ -86,7 +107,8 @@ void ListFiles(EthernetClient client, char *folderPath, File folder, int format)
     client.print(getString(HREF_START));
 
     client.print(folderPath);
-    client.print(entry.name());
+    entry.getName(name, 61);
+    client.print(name);
 
     client.print(getString(HREF_END));
     client.print(getString(PROPSTAT_START));
@@ -101,13 +123,17 @@ void ListFiles(EthernetClient client, char *folderPath, File folder, int format)
       client.print(getString(CONTENTLEN_START));
       client.print(entry.size(), DEC);
       client.print(getString(CONTENTLEN_END));
-
     }
-
+    client.print(getString(MODDATE_START));
+    entry.printModifyDateTime(&client);
+    client.print(getString(MODDATE_END));
+    client.print(getString(CREATEDATE_START));
+    entry.printCreateDateTime(&client);
+    client.print(getString(CREATEDATE_END));
     client.print(getString(PROP_END));
     client.print(getString(STATUS_OK));
     client.print(getString(PROPSTAT_END));
-    client.println(getString(RESPONSE_END));
+    client.print(getString(RESPONSE_END));
 
     entry.close();
 
@@ -116,7 +142,7 @@ void ListFiles(EthernetClient client, char *folderPath, File folder, int format)
 
 }
 
-#define BUFFER_SIZE 110
+
 
 void not_found_404(EthernetClient client) {
   client.println(getString(HTTP_NOT_FOUND));
@@ -128,9 +154,12 @@ void not_allowed_405(EthernetClient client) {
   client.println(getString(HTTP_405_METHOD_NOT_ALLOWED));
   client.println();
 }
+
+
+
 void loop()
 {
-  char reqest_line[BUFFER_SIZE];
+  char request_line[BUFFER_SIZE];
   int index = 0;
   EthernetClient client = server.available();
   if (client) {
@@ -139,23 +168,21 @@ void loop()
       if (client.available()) {
           char c = client.read();
           if (c != '\n' && c != '\r') {
-              reqest_line[index] = c;
+              request_line[index] = c;
               index++;
               if (index >= BUFFER_SIZE) {
                 index = BUFFER_SIZE - 1;
               }
               continue;
            }
-           reqest_line[index] = 0;
+           request_line[index] = 0;
+           (strstr(request_line, " HTTP"))[0] = 0;
+           
+           char *decodedRequest = str_replace(request_line,"%20"," ");
            //GET /folder/test.txt HTTP/1.1
-           char *filename;
-
-        
-           (strstr(reqest_line, " HTTP"))[0] = 0;
-
-           if (strstr(reqest_line, "PROPFIND ") != 0) {
+           char *filename =  strcpy(decodedRequest,strstr(decodedRequest, " ")+1);
+           if (strstr(request_line, "PROPFIND ") != 0) {
               //curl --data "" --header "depth:1"  --header "Content-Type: text/xml" --request PROPFIND http://192.168.1.177/
-              filename = reqest_line + 9; 
               File dataFile = SD.open(filename);
               if (! dataFile) {
                 not_found_404(client);
@@ -170,8 +197,9 @@ void loop()
                 not_allowed_405(client);
               }
               dataFile.close();
-           } else if (strstr(reqest_line, "GET ") != 0) {
-              filename = reqest_line + 5; 
+             
+           } else if (strstr(request_line, "GET ") != 0) {
+              //filename = request_line + 5; 
               File dataFile = SD.open(filename);
               if (! dataFile) {
                 not_found_404(client);
@@ -182,9 +210,9 @@ void loop()
               } else {
                 client.println(getString(HTTP_200_FOUND));
                 client.println(getString(HTTP_CONTENT_TYPE));
-                if (strstr(reqest_line, ".JPG") != 0) {
+                if (strstr(request_line, ".JPG") != 0) {
                   client.println(getString(MIME_JPEG));
-                } else if (strstr(reqest_line, ".PNG") != 0) {
+                } else if (strstr(request_line, ".PNG") != 0) {
                   client.println(getString(MIME_PNG));
                 } else {
                   client.println(getString(MIME_BIN));
@@ -198,7 +226,7 @@ void loop()
                 }
               }
               dataFile.close();
-          } else if (strstr(reqest_line, "OPTIONS ") != 0) {
+          } else if (strstr(request_line, "OPTIONS ") != 0) {
               client.println(getString(HTTP_200_FOUND));
               client.println(getString(HTTP_OPTIONS_HEADERS));
               client.println();
