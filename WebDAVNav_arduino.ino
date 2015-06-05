@@ -25,7 +25,7 @@ FLASH_TEXT(HTTP_XML_CONTENT) = "Content-Type: application/xml;";
 FLASH_TEXT(HTTP_HTML_CONTENT) = "Content-Type: text/html";
 FLASH_TEXT(HTTP_CONTENT_TYPE) = "Content-Type: ";
 FLASH_TEXT(MIME_JPEG) = "image/jpeg";
-FLASH_TEXT(MIME_PNG) = "image/jpeg";
+FLASH_TEXT(MIME_PNG) = "image/png";
 FLASH_TEXT(MIME_BIN) = "application/octet-stream";
 
 FLASH_TEXT(MULTISTATUS_START) = "<?xml version=\"1.0\" ?><D:multistatus xmlns:D=\"DAV:\">";
@@ -95,7 +95,6 @@ void setup() {
 void ListFiles(EthernetClient client, const char *folderPath, File folder, int format) {
   client.println(getString(MULTISTATUS_START));
   folder.rewindDirectory();
-  char name[64];
   while (true) {
 
     File entry =  folder.openNextFile();
@@ -105,16 +104,11 @@ void ListFiles(EthernetClient client, const char *folderPath, File folder, int f
     }
     client.print(getString(RESPONSE_START));
     client.print(getString(HREF_START));
-
     client.print(folderPath);
-    entry.getName(name, 61);
-    client.print(name);
-
+    entry.printName(&client);
     client.print(getString(HREF_END));
     client.print(getString(PROPSTAT_START));
     client.print(getString(PROP_START));
-
-
     if (entry.isDirectory()) {
       client.print(getString(RESOURCETYPE_START));
       client.print(getString(RESOURCE_COLLECTION));
