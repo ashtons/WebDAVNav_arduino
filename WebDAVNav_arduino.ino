@@ -17,6 +17,7 @@ EthernetServer server(80);
 
 FLASH_TEXT(HTTP_NOT_FOUND) = "HTTP/1.1 404 Not Found";
 FLASH_TEXT(HTTP_200_FOUND) = "HTTP/1.1 200 OK";
+FLASH_TEXT(HTTP_204_NO_CONTENT) = "HTTP/1.1 204 No Content";
 FLASH_TEXT(HTTP_207_FOUND) = "HTTP/1.1 207 Multi Status";
 FLASH_TEXT(HTTP_405_METHOD_NOT_ALLOWED) = "HTTP/1.1 405 Method Not Allowed";
 FLASH_TEXT(HTTP_OPTIONS_HEADERS) = "Allow: PROPFIND, GET\nDAV: 1, 2";
@@ -171,11 +172,10 @@ void loop()
            }
            request_line[index] = 0;
            (strstr(request_line, " HTTP"))[0] = 0;
-           
            char *decodedRequest = str_replace(request_line,"%20"," ");
            //GET /folder/test.txt HTTP/1.1
            char *filename =  strcpy(decodedRequest,strstr(decodedRequest, " ")+1);
-           if (strstr(request_line, "PROPFIND ") != 0) {
+           if (strstr_P(request_line, PSTR("PROPFIND ")) != 0) {
               //curl --data "" --header "depth:1"  --header "Content-Type: text/xml" --request PROPFIND http://192.168.1.177/
               File dataFile = SD.open(filename);
               if (! dataFile) {
@@ -191,9 +191,20 @@ void loop()
                 not_allowed_405(client);
               }
               dataFile.close();
-             
-           } else if (strstr(request_line, "GET ") != 0) {
-              //filename = request_line + 5; 
+           } else if (strstr_P(request_line, PSTR("DELETE ")) != 0) {
+               File dataFile = SD.open(filename, O_WRITE);
+               if (! dataFile) {
+                not_found_404(client);
+                break;
+              }
+              if (dataFile.remove()) {
+                  client.println(getString(HTTP_204_NO_CONTENT));
+                  client.println();
+              } else {
+                   not_found_404(client);
+              }
+              dataFile.close();
+           } else if (strstr_P(request_line, PSTR("GET ")) != 0) {
               File dataFile = SD.open(filename);
               if (! dataFile) {
                 not_found_404(client);
@@ -204,9 +215,9 @@ void loop()
               } else {
                 client.println(getString(HTTP_200_FOUND));
                 client.println(getString(HTTP_CONTENT_TYPE));
-                if (strstr(request_line, ".JPG") != 0) {
+                if (strstr_P(request_line, PSTR(".jpg")) != 0) {
                   client.println(getString(MIME_JPEG));
-                } else if (strstr(request_line, ".PNG") != 0) {
+                } else if (strstr_P(request_line, PSTR(".png")) != 0) {
                   client.println(getString(MIME_PNG));
                 } else {
                   client.println(getString(MIME_BIN));
@@ -220,7 +231,7 @@ void loop()
                 }
               }
               dataFile.close();
-          } else if (strstr(request_line, "OPTIONS ") != 0) {
+          } else if (strstr_P(request_line, PSTR("OPTIONS ")) != 0) {
               client.println(getString(HTTP_200_FOUND));
               client.println(getString(HTTP_OPTIONS_HEADERS));
               client.println();
