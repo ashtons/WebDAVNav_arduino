@@ -23,3 +23,8 @@ Mount the server using the http address
     http://192.168.1.177/
     
 The is currently no authentication, so no username or password is required to connect
+
+#Screenshots
+<img src="https://raw.githubusercontent.com/ashtons/WebDAVNav_arduino/master/screenshots/Screen%20Shot%201.png" width="200" />
+<img src="https://raw.githubusercontent.com/ashtons/WebDAVNav_arduino/master/screenshots/Screen%20Shot%202.png" width="200" />
+<img src="https://raw.githubusercontent.com/ashtons/WebDAVNav_arduino/master/screenshots/Screen%20Shot%203.png" width="200" />
