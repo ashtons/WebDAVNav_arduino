@@ -17,6 +17,7 @@ EthernetServer server(80);
 
 FLASH_TEXT(HTTP_NOT_FOUND) = "HTTP/1.1 404 Not Found";
 FLASH_TEXT(HTTP_200_FOUND) = "HTTP/1.1 200 OK";
+FLASH_TEXT(HTTP_201_CREATED) = "HTTP/1.1 201 CREATED";
 FLASH_TEXT(HTTP_204_NO_CONTENT) = "HTTP/1.1 204 No Content";
 FLASH_TEXT(HTTP_207_FOUND) = "HTTP/1.1 207 Multi Status";
 FLASH_TEXT(HTTP_405_METHOD_NOT_ALLOWED) = "HTTP/1.1 405 Method Not Allowed";
@@ -25,6 +26,7 @@ FLASH_TEXT(HTTP_OPTIONS_HEADERS) = "Allow: PROPFIND, GET\nDAV: 1, 2";
 FLASH_TEXT(HTTP_XML_CONTENT) = "Content-Type: application/xml;";
 FLASH_TEXT(HTTP_HTML_CONTENT) = "Content-Type: text/html";
 FLASH_TEXT(HTTP_CONTENT_TYPE) = "Content-Type: ";
+FLASH_TEXT(HTTP_CONTENT_LENGTH) = "Content-Length: ";
 FLASH_TEXT(MIME_JPEG) = "image/jpeg";
 FLASH_TEXT(MIME_PNG) = "image/png";
 FLASH_TEXT(MIME_BIN) = "application/octet-stream";
@@ -149,7 +151,73 @@ void not_allowed_405(EthernetClient client) {
   client.println(getString(HTTP_405_METHOD_NOT_ALLOWED));
   client.println();
 }
+unsigned long readNextLongValue(EthernetClient client) {
+    char rest_of_line[10];
+    byte index = 0;
+    unsigned long result = 0;
+    while (client.connected()) {
+        char c = client.read();
+        if (c != ' ' && c != '\n' && c != '\r') {
+            rest_of_line[index] = c;
+            index++;
+            if (index >= 10) {
+                break;
+            }
+            continue;
+        } else if (c == '\r') {
+            client.read(); //\n
+            break;
+        }
+    }
+    rest_of_line[index] = 0;
+    result = atol(rest_of_line);
+    return result;
+}
 
+unsigned long readContentLength(EthernetClient client) {
+    unsigned long content_length = 0;
+    byte index = 0;
+    char needle[] = "ngth:";
+    byte len = strlen(needle);
+    while(client.connected()) { 
+        char c = client.read();
+        if (c == needle[0] && index == 0) {
+            index = 1;
+        } else if (c == needle[1]  && index == 1) {
+            index = 2;
+        } else if (c == needle[2]  && index == 2) {
+            index = 3;
+        } else if (c == needle[3]  && index == 3) {
+            index = 4;
+        } else if (c == needle[4]  && index == 4) {
+            break;
+        } else {
+            index = 0;
+        }
+    }
+    content_length = readNextLongValue(client);
+    return content_length;
+}
+
+void readUntilBody(EthernetClient client) {
+    //Read until \r\n\r\n
+    byte index = 0;
+    while(client.connected()) { 
+        char c = client.read();
+        if (c == '\r' && index == 0) {
+            index = 1;
+        } else if (c == '\n' && index == 1) {
+            index = 2;
+        } else if (c == '\r' && index == 2) {
+            index = 3;
+        } else if (c == '\n' && index == 3) {
+            break;
+        } else {
+            index = 0;
+        }
+    }
+    
+}
 
 
 void loop()
@@ -171,6 +239,7 @@ void loop()
               continue;
            }
            request_line[index] = 0;
+           //Serial.println(request_line);
            (strstr(request_line, " HTTP"))[0] = 0;
            char *decodedRequest = str_replace(request_line,"%20"," ");
            //GET /folder/test.txt HTTP/1.1
@@ -191,19 +260,41 @@ void loop()
                 not_allowed_405(client);
               }
               dataFile.close();
+           } else if (strstr_P(request_line, PSTR("PUT ")) != 0) {
+               unsigned long content_length = readContentLength(client);
+               readUntilBody(client);
+               Serial.print("Expecting: ");
+               Serial.println(content_length);
+               File dataFile = SD.open(filename, FILE_WRITE);
+               byte buf[300];
+               int  num_read = 0;
+               unsigned long total_read = 0;
+               while (total_read < content_length) {
+                   num_read=client.read(buf,300);
+                   if (num_read > 0) {
+                       dataFile.write(buf,num_read);
+                       total_read = total_read + num_read;
+                   } else {
+                       delay(1);
+                   }
+               }
+               dataFile.close();
+               client.println(getString(HTTP_201_CREATED));
+               client.println();
+               break;
            } else if (strstr_P(request_line, PSTR("DELETE ")) != 0) {
                File dataFile = SD.open(filename, O_WRITE);
                if (! dataFile) {
-                not_found_404(client);
-                break;
-              }
-              if (dataFile.remove()) {
+                   not_found_404(client);
+                   break;
+               }
+               if (dataFile.remove()) {
                   client.println(getString(HTTP_204_NO_CONTENT));
                   client.println();
-              } else {
+               } else {
                    not_found_404(client);
-              }
-              dataFile.close();
+               }
+               dataFile.close();
            } else if (strstr_P(request_line, PSTR("GET ")) != 0) {
               File dataFile = SD.open(filename);
               if (! dataFile) {
@@ -214,7 +305,7 @@ void loop()
                 ListFiles(client, filename, dataFile, 1);
               } else {
                 client.println(getString(HTTP_200_FOUND));
-                client.println(getString(HTTP_CONTENT_TYPE));
+                client.print(getString(HTTP_CONTENT_TYPE));
                 if (strstr_P(request_line, PSTR(".jpg")) != 0) {
                   client.println(getString(MIME_JPEG));
                 } else if (strstr_P(request_line, PSTR(".png")) != 0) {
@@ -222,6 +313,9 @@ void loop()
                 } else {
                   client.println(getString(MIME_BIN));
                 }
+                client.print(getString(HTTP_CONTENT_LENGTH));
+                dataFile.printFileSize(&client);
+                client.println();
                 client.println();
                 char buf[42];
                 int16_t  num_read;
