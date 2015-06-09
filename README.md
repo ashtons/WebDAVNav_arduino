@@ -3,7 +3,7 @@ Basic WebDAV server for Arduino
 
 Uses SDFat library from https://github.com/greiman/SdFat
 
-Currently supports PROPFIND, GET and DELETE which allows a WebDAV client to browse folders on the SDCard, download and delete files
+Currently supports PROPFIND, GET, PUT and DELETE which allows a WebDAV client to browse folders on the SDCard, download, upload and delete files
 
 Tested on EtherTen
 
