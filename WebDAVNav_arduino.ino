@@ -18,10 +18,11 @@ EthernetServer server(80);
 FLASH_TEXT(HTTP_NOT_FOUND) = "HTTP/1.1 404 Not Found";
 FLASH_TEXT(HTTP_200_FOUND) = "HTTP/1.1 200 OK";
 FLASH_TEXT(HTTP_201_CREATED) = "HTTP/1.1 201 CREATED";
+FLASH_TEXT(HTTP_201_MOVED) = "HTTP/1.1 201 MOVED";
 FLASH_TEXT(HTTP_204_NO_CONTENT) = "HTTP/1.1 204 No Content";
 FLASH_TEXT(HTTP_207_FOUND) = "HTTP/1.1 207 Multi Status";
 FLASH_TEXT(HTTP_405_METHOD_NOT_ALLOWED) = "HTTP/1.1 405 Method Not Allowed";
-FLASH_TEXT(HTTP_OPTIONS_HEADERS) = "Allow: PROPFIND, GET, DELETE, PUT\nDAV: 1, 2";
+FLASH_TEXT(HTTP_OPTIONS_HEADERS) = "Allow: PROPFIND, GET, DELETE, PUT, MOVE\nDAV: 1, 2";
 
 FLASH_TEXT(HTTP_XML_CONTENT) = "Content-Type: application/xml;";
 FLASH_TEXT(HTTP_HTML_CONTENT) = "Content-Type: text/html";
@@ -57,6 +58,7 @@ FLASH_TEXT(STATUS_OK) = "<D:status>HTTP/1.1 200 OK</D:status>";
 
 char stringBuffer[MAX_STRING];
 char replaceBuffer[MAX_STRING];
+char currentLineBuffer[MAX_STRING];
 
 char* getString(const unsigned char* str) {
   strcpy_P(stringBuffer, (char*)str);
@@ -151,6 +153,7 @@ void not_allowed_405(EthernetClient client) {
   client.println(getString(HTTP_405_METHOD_NOT_ALLOWED));
   client.println();
 }
+
 unsigned long readNextLongValue(EthernetClient client) {
     char rest_of_line[10];
     byte index = 0;
@@ -197,6 +200,46 @@ unsigned long readContentLength(EthernetClient client) {
     }
     content_length = readNextLongValue(client);
     return content_length;
+}
+char *readToEndOfLine(EthernetClient client) {
+    byte index = 0;
+    index = 0;
+    while(client.connected()) {
+       char c = client.read();
+       if (c != '\n' && c != '\r') {
+           currentLineBuffer[index] = c;
+           index++;
+           continue;
+       } else {
+           currentLineBuffer[index] = 0;
+           break;
+       }
+    }
+    return currentLineBuffer;
+}
+
+char *readDestination(EthernetClient client) {
+    byte index = 0;
+    char needle[] = "tion:";
+    byte len = strlen(needle);
+    while(client.connected()) { 
+        char c = client.read();
+        if (c == needle[0] && index == 0) {
+            index = 1;
+        } else if (c == needle[1]  && index == 1) {
+            index = 2;
+        } else if (c == needle[2]  && index == 2) {
+            index = 3;
+        } else if (c == needle[3]  && index == 3) {
+            index = 4;
+        } else if (c == needle[4]  && index == 4) {
+            break;
+        } else {
+            index = 0;
+        }
+    }
+    client.read(); //space
+    return readToEndOfLine(client);
 }
 
 void readUntilBody(EthernetClient client) {
@@ -260,11 +303,24 @@ void loop()
                 not_allowed_405(client);
               }
               dataFile.close();
+           } else if (strstr_P(request_line, PSTR("MOVE ")) != 0) {
+               char *destination = readDestination(client);
+               if (strncmp(destination,"http",4) == 0) {
+                   destination = strstr(destination,"//");
+                   destination = strstr(destination+2,"/");
+               }
+               SdFile dataFile(filename, O_READ);
+               if (dataFile.rename(SD.vwd(), destination)) {
+                   client.println(getString(HTTP_201_MOVED));
+               } else {
+                   client.println(getString(HTTP_NOT_FOUND));
+               }
+               client.println();
+               
+               break;
            } else if (strstr_P(request_line, PSTR("PUT ")) != 0) {
                unsigned long content_length = readContentLength(client);
                readUntilBody(client);
-               Serial.print("Expecting: ");
-               Serial.println(content_length);
                File dataFile = SD.open(filename, FILE_WRITE);
                byte buf[300];
                int  num_read = 0;
